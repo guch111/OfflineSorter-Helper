@@ -3,6 +3,7 @@ Data classes for .nex and .nex5 files.
 """
 import numpy as np
 from typing import List
+import re
 
 
 def CalcScaleFloatsToShorts(numbers: 'np.ndarray[np.float32]') -> float:
@@ -158,6 +159,10 @@ class Continuous(Variable):
         self.CalculatedScaleFloatsToShorts = 1
         """When saving data to .nex file, this field contains coefficient to convert floats to shorts."""
 
+        reobj = re.search(r'ch(\d+)', self.Name)
+        if reobj:
+            self.Ch_num = int(reobj.group(1))
+
     def MaxTimestamp(self) -> float:
         """Returns maximum timestamp in seconds (the last timestamp of all continuous values)."""
         if self.FragmentTimestamps is None or len(self.FragmentTimestamps) == 0 or self.SamplingRate <= 0:
@@ -203,6 +208,10 @@ class Waveform(Event):
 
         self.CalculatedScaleFloatsToShorts = 1
         """When saving data to .nex file, this field contains coefficient to convert floats to shorts."""
+
+        reobj = re.search(r'ch(\d+)', self.Name)
+        if reobj:
+            self.Ch_num = int(reobj.group(1))
 
     def MaxTimestamp(self) -> float:
         """Returns maximum timestamp in seconds (the last timestamp of the last waveform)."""
