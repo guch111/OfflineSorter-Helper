@@ -167,15 +167,14 @@ def ref_process (data, info):
 def save_nex (data, info):
     save_log ("Saving data into file, may take several minutes. Please wait ...\n")
     if info['file_format']:
-        if not re.search(r'.*\.nex5$', info['file_name']):
-            info['file_name'] += ".nex5"
+        f_name = info['file_name'] + ".nex5"
     else:
-        if not re.search(r'.*\.nex$', info['file_name']):
-            info['file_name'] += ".nex"
-    if os.path.exists(info['file_name']):
-        os.remove(info['file_name'])
+        f_name = info['file_name'] + ".nex"
+    info['nex_name'] = f_name
+    if os.path.exists(f_name):
+        os.remove(f_name)
     ch, lenth = data.shape
-    file_abspath = os.path.abspath(info['file_name'])
+    file_abspath = os.path.abspath(f_name)
     fd = FileData()
     fd.TimestampFrequency = info['sample_rate']
     fd.Events.append(Event('StartStop', [0, (lenth-1)/info['sample_rate']]))
@@ -192,20 +191,19 @@ def save_nex (data, info):
         progressbar_update(p_value)
     if not info['file_format']:
         writerNex = NexFileWriters.NexFileWriter()
-        writerNex.WriteDataToNexFile(fd, info['file_name'])
+        writerNex.WriteDataToNexFile(fd, f_name)
     else:
         writerNex5 = NexFileWriters.Nex5FileWriter()
-        writerNex5.WriteDataToNex5File(fd, info['file_name'])
+        writerNex5.WriteDataToNex5File(fd, f_name)
     progressbar_update(100)
     save_log ("Process complete.")
     save_log ("Location of output mat file: "+str(file_abspath))
 
 def gen_ofb(ofb_info):
-    nex_name = ofb_info['file_name']
-    ofb_info['file_name'] = ofb_info['file_name'].replace(".nex5","").replace(".nex","")
-    ofb_info['file_name'] += ".ofb"
-    with open(ofb_info['file_name'], "w") as f:
-        f.write("File " + nex_name + "\n")
+    pre_name = ofb_info['file_name'] + '_pre.ofb'
+    post_name = ofb_info['file_name'] + '_post.ofb'
+    with open(pre_name, "w") as f:
+        f.write("File " + ofb_info['nex_name'] + "\n")
         if ofb_info['filter_en']:
             f.write("ForEachChannel Filter\n")
         if ofb_info['detect_en']:
@@ -224,6 +222,14 @@ def gen_ofb(ofb_info):
         f.write("Set FeatureX 0\n")
         f.write("Set FeatureY 1\n")
         f.write("Set FeatureZ 2\n")
+        f.write("Process\n")
+    with open(post_name, "w") as f:
+        f.write("ForEachFile ExportToNex\n")
+        f.write("Set SaveNexCont 1\n")
+        f.write("Set SaveNexProcessedCont 1\n")
+        f.write("Set SaveNexWaveforms 1\n")
+        f.write("Set SaveNexUnsorted 0\n")
+        f.write("Set SaveNexUnitTemplates 0\n")
         f.write("Process\n")
 
 def db_select():
@@ -279,7 +285,7 @@ def run():
                 return 1
     info['delete_list'] = delete_list
     info['file_format'] = file_format.get()
-    info['file_name'] = info['db'] + "\\" + file_name.get()
+    info['file_name'] = os.path.join(info['db'], file_name.get())
 
     file_list = get_rhds(info)
     if len(file_list) == 0:
@@ -305,6 +311,7 @@ def run():
     if gen_ofb_en.get():
         ofb_info = {}
         ofb_info['file_name'] = info['file_name']
+        ofb_info['nex_name'] = info['nex_name']
         ofb_info['filter_en'] = filter_en.get()
         if ofb_info['filter_en']:
             ofb_info['filter_pole'] = filter_pole.get()
