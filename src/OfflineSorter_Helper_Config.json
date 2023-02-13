@@ -1,7 +1,7 @@
 {
     "ref_en": 1,
     "open_en": 1,
-    "threshold": "1",
+    "threshold": "2",
     "file_format": 0,
     "gen_ofb_en": 1,
     "filter_en": 1,
