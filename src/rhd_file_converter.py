@@ -55,9 +55,10 @@ def get_rhds(info):
 def decode_rhds(file_list, info):
     data_list = []
     total_time = 0
-    sample_rate_all = 0
+    sample_rate_list = []
     port_list = []
-    disable_ch = list(range(128))
+    #disable_ch = list(range(128))
+    work_ch = []
     imp = []
     for f in file_list:
         file_path = f[0]
@@ -66,27 +67,29 @@ def decode_rhds(file_list, info):
         if not len(port_list):
             for ch_info in data['amplifier_channels']:
                 port_list.append(ch_info['port_prefix'])
-                disable_ch.remove(ch_info['native_order'])
+                work_ch.append(ch_info['native_order'])
+                #disable_ch.remove(ch_info['native_order'])
                 imp.append(ch_info['electrode_impedance_magnitude'])
-            disable_ch.sort()
-            for c in disable_ch:
-                imp.insert(c, 0)
+            #disable_ch.sort()
+            work_ch.sort()
+            #for c in disable_ch:
+                #imp.insert(c, 0)
             if len(set(port_list)) > 1:
                 showerror(title = "错误", message = "当前版本暂不支持记录多个port的rhd文件")
                 return []
-        if not sample_rate_all:
-            sample_rate_all = sample_rate
-        if not sample_rate == sample_rate_all:
-            showerror(title = "错误", message = "rhd文件的采样率不同")
-            return []
+        sample_rate_list.append(sample_rate)
         total_time += record_time
         data_list.append(data['amplifier_data'])
+    if len(set(sample_rate_list)) > 1:
+        showerror(title = "错误", message = "rhd文件的采样率不同")
+        return []
     print("")
-    save_log("Parsing complete. Get "+str(total_time)+" seconds data in total with sample rate of "+str(sample_rate_all/1000)+" kHz.\n")
+    save_log("Parsing complete. Get "+str(total_time)+" seconds data in total with sample rate of "+str(sample_rate_list[0]/1000)+" kHz.\n")
     progressbar_update(5)
     info['imp'] = imp
-    info['sample_rate'] = sample_rate_all
-    info['disable_ch'] = disable_ch
+    info['sample_rate'] = sample_rate_list[0]
+    info['work_ch'] = work_ch
+    #info['disable_ch'] = disable_ch
     return data_list
 
 def data_merge(data_list, info):
@@ -113,17 +116,17 @@ def data_merge(data_list, info):
     delete_col.sort()
     data = np.delete(data, delete_col, axis=1)
 
-    ch, length = data.shape
-    zero_ch = np.array([0]*length)
-    for c in info['disable_ch']:
-        data = np.insert(data, c, zero_ch, axis=0) 
+    #ch, length = data.shape
+    #zero_ch = np.array([0]*length)
+    #for c in info['disable_ch']:
+        #data = np.insert(data, c, zero_ch, axis=0) 
     progressbar_update(20)
     return data
 
-def imp_decode(info):
+def imp_decode(data, info):
     if not info['open_en']:
         info['short_ch'] = []
-        return 0
+        return data
     files = os.listdir(info['db'])
     file_list = []
     for file in files:  
@@ -143,22 +146,25 @@ def imp_decode(info):
     
     info['short_ch'] = []
     for i in range(len(info['imp'])):
-        if i in info['disable_ch']:
-            save_log ("Channel "+str(i)+" is disable")
-        elif info['imp'][i] > info['threshold']:
+        #if i in info['disable_ch']:
+            #save_log ("Channel "+str(i)+" is disable")
+        if info['imp'][i] > info['threshold']:
             save_log ("Channel "+str(i)+" is opening. Impedance: "+str(info['imp'][i]/1e6)+" MΩ.")
-            info['disable_ch'].append(i)
+            ch_idx = info['work_ch'].index(i)
+            info['work_ch'].remove(i)
+            data = np.delete(data, ch_idx, axis=0)
+            #info['disable_ch'].append(i)
         elif info['imp'][i] < 10000:
             save_log("Impedance of Channel "+str(i)+" is too low. Impedance: "+str(info['imp'][i]/1e6)+" MΩ.")
             info['short_ch'].append(i)
     print("")
-    info['disable_ch'] = list(set(info['disable_ch']))
-    info['disable_ch'].sort()
-    return 0
+    #info['disable_ch'] = list(set(info['disable_ch']))
+    #info['disable_ch'].sort()
+    return data
 
 def ref_process (data, info):    
-    imp_process = np.array([[0] if i in info['disable_ch'] else [1] for i in range(128)])
-    data = imp_process*data
+    #imp_process = np.array([[0] if i in info['disable_ch'] else [1] for i in range(128)])
+    #data = imp_process*data
     if info['ref_en']:
         ref = data.mean(axis=0)
         data -= ref
@@ -180,12 +186,12 @@ def save_nex (data, info):
     fd.Events.append(Event('StartStop', [0, (lenth-1)/info['sample_rate']]))
     fd.Intervals.append(Interval('AllFile', [0], [(lenth-1)/info['sample_rate']]))
     for c in range(ch):
-        if c in info['disable_ch']:
-            continue
-        elif c in info['short_ch']:
-            c_name = 'ch'+str(c)+'(short)'
+        #if c in info['disable_ch']:
+            #continue
+        if c in info['short_ch']:
+            c_name = 'ch'+str(info['work_ch'][c])+'(short)'
         else:
-            c_name = 'ch'+str(c)
+            c_name = 'ch'+str(info['work_ch'][c])
         fd.Continuous.append(Continuous(c_name, info['sample_rate'], [0], [0], data[c].tolist()))
         p_value = 20+int(c/128*80)
         progressbar_update(p_value)
@@ -210,15 +216,19 @@ def gen_ofb(ofb_info):
             f.write("ForEachChannel Detect\n")
         if ofb_info['sort_en']:
             f.write("ForEachChannel " + ofb_info['sort_type'] + "\n")
-        
+
         if ofb_info['filter_en']:
             f.write("Set FilterFreq " + ofb_info['filter_cutoff'] + "\n")
             f.write("Set FilterType " + ofb_info['filter_type'] + "\n")
             f.write("Set FilterPoles " + ofb_info['filter_pole'] + "\n")
-        
+
+        if ofb_info['align_en']:
+            f.write("Set AlignDuringDetect "+"1"+"\n")
+            f.write("Set AlignType "+"4"+"\n")
+
         if ofb_info['detect_en']:
             f.write("Set DetectMicrovolts " + ofb_info['detect_threshold'] + "\n")
-        
+
         f.write("Set FeatureX 0\n")
         f.write("Set FeatureY 1\n")
         f.write("Set FeatureZ 2\n")
@@ -253,7 +263,7 @@ def run():
     cur_path = os.getcwd()
     log_file = open(cur_path+'\\Rhd_File_Converter.log', 'a')
     tmp = sys.stdout
-    sys.stdout = log_file
+    #sys.stdout = log_file
 
     print("")
     print("="*80)
@@ -264,6 +274,7 @@ def run():
     info['open_en'] = open_en.get()
     info['ref_en'] = ref_en.get()
     info['delete_en'] = delete_en.get()
+    info['align_en'] =align_en.get()
 
     delete_list = []
     if info['delete_en']:
@@ -300,7 +311,10 @@ def run():
         return 1
 
     data = data_merge(data_list, info)
-    if imp_decode(info):
+    data = imp_decode(data, info)
+    if not (type(data) is np.ndarray):
+        print("error")
+        print(type(data))
         log_file.close()
         sys.stdout = tmp
         return 1
@@ -313,6 +327,7 @@ def run():
         ofb_info['file_name'] = info['file_name']
         ofb_info['nex_name'] = info['nex_name']
         ofb_info['filter_en'] = filter_en.get()
+        ofb_info['align_en'] =align_en.get()
         if ofb_info['filter_en']:
             ofb_info['filter_pole'] = filter_pole.get()
             ofb_info['filter_cutoff'] = filter_cutoff.get()
@@ -345,6 +360,7 @@ def save_cfg():
     cfg['detect_threshold'] = detect_threshold.get()
     cfg['sort_en'] = sort_en.get()
     cfg['sort_type'] = sort_type.get()
+    cfg['align_en'] = align_en.get()
     cur_path = os.getcwd()
     with open(cur_path+'\\OfflineSorter_Helper_Config.json','w') as cfg_f:
         json.dump(cfg, cfg_f, indent=4)
@@ -378,6 +394,7 @@ def init():
     detect_threshold.set(cfg['detect_threshold'])
     sort_en.set(cfg['sort_en'])
     sort_type.set(cfg['sort_type'])
+    align_en.set(cfg['align_en'])
 
 
 if __name__ == '__main__':
@@ -448,6 +465,9 @@ if __name__ == '__main__':
     sort_type = ttk.Combobox(root, width=11)
     sort_type['value'] = ['ValleySeek2d', 'ValleySeek3d', 'TDist2d', 'TDist3d']
     sort_type.grid(row=9, column=1, columnspan=2,sticky='e')
+
+    align_en = tk.IntVar()
+    tk.Checkbutton(root, text='对齐', font=('微软雅黑', 10),variable = align_en,onvalue=1,offvalue=0).grid(row=8, column=3, sticky='w')
 
     progressbar = ttk.Progressbar(root, length = 120)
     progressbar.grid(row=10, column=0, columnspan=2, sticky='w', padx=5)

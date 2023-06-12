@@ -5,11 +5,12 @@
     "file_format": 0,
     "gen_ofb_en": 1,
     "filter_en": 1,
-    "filter_cutoff": "500",
+    "filter_cutoff": "250",
     "filter_type": "Butterworth",
-    "filter_pole": "4",
+    "filter_pole": "2",
     "detect_en": 1,
-    "detect_threshold": "-70",
+    "detect_threshold": "-60",
     "sort_en": 1,
-    "sort_type": "ValleySeek2d"
+    "sort_type": "ValleySeek2d",
+    "align_en": 1
 }
