@@ -3,6 +3,9 @@
 #V2.1: 噪声段去除，弹窗报错
 #V2.2: Cfg save
 #V3: ofb script gen
+#V3.1: gen ofb_pre for data process and ofb_post for data export
+#V3.2: bug fix: common noise remove
+#      add waveform alignment
 #chig 
 
 import sys, os, re
@@ -57,7 +60,6 @@ def decode_rhds(file_list, info):
     total_time = 0
     sample_rate_list = []
     port_list = []
-    #disable_ch = list(range(128))
     work_ch = []
     imp = []
     for f in file_list:
@@ -68,12 +70,8 @@ def decode_rhds(file_list, info):
             for ch_info in data['amplifier_channels']:
                 port_list.append(ch_info['port_prefix'])
                 work_ch.append(ch_info['native_order'])
-                #disable_ch.remove(ch_info['native_order'])
                 imp.append(ch_info['electrode_impedance_magnitude'])
-            #disable_ch.sort()
             work_ch.sort()
-            #for c in disable_ch:
-                #imp.insert(c, 0)
             if len(set(port_list)) > 1:
                 showerror(title = "错误", message = "当前版本暂不支持记录多个port的rhd文件")
                 return []
@@ -89,7 +87,6 @@ def decode_rhds(file_list, info):
     info['imp'] = imp
     info['sample_rate'] = sample_rate_list[0]
     info['work_ch'] = work_ch
-    #info['disable_ch'] = disable_ch
     return data_list
 
 def data_merge(data_list, info):
@@ -116,10 +113,6 @@ def data_merge(data_list, info):
     delete_col.sort()
     data = np.delete(data, delete_col, axis=1)
 
-    #ch, length = data.shape
-    #zero_ch = np.array([0]*length)
-    #for c in info['disable_ch']:
-        #data = np.insert(data, c, zero_ch, axis=0) 
     progressbar_update(20)
     return data
 
@@ -140,31 +133,31 @@ def imp_decode(data, info):
         save_log("Parsing impedance from: "+imp_file_path+"...")
         with open(imp_file_path, 'r') as impfile:
             reader = DictReader(impfile)
-            info['imp'] = [eval(row['Impedance Magnitude at 1000 Hz (ohms)']) for row in reader]
+            imp_csv = [eval(row['Impedance Magnitude at 1000 Hz (ohms)']) for row in reader]
+            info['imp'] = []
+            for c in info['work_ch']:
+                info['imp'].append(imp_csv[c])
     elif len(file_list) == 0:
         save_log("Do not get impedance file, use the impedance stored in rhd file")
     
     info['short_ch'] = []
-    for i in range(len(info['imp'])):
-        #if i in info['disable_ch']:
-            #save_log ("Channel "+str(i)+" is disable")
+    info['open_ch'] = []
+    info['good_ch'] = []
+    for i, c in enumerate(info['work_ch']):
         if info['imp'][i] > info['threshold']:
-            save_log ("Channel "+str(i)+" is opening. Impedance: "+str(info['imp'][i]/1e6)+" MΩ.")
-            ch_idx = info['work_ch'].index(i)
-            info['work_ch'].remove(i)
-            data = np.delete(data, ch_idx, axis=0)
-            #info['disable_ch'].append(i)
+            save_log ("Channel "+str(c)+" is opening. Impedance: "+str(info['imp'][i]/1e6)+" MΩ.")
+            info['open_ch'].append(c)
         elif info['imp'][i] < 10000:
-            save_log("Impedance of Channel "+str(i)+" is too low. Impedance: "+str(info['imp'][i]/1e6)+" MΩ.")
-            info['short_ch'].append(i)
+            save_log("Impedance of Channel "+str(c)+" is too low. Impedance: "+str(info['imp'][i]/1e6)+" MΩ.")
+            info['good_ch'].append(c)
+            info['short_ch'].append(c)
+        else:
+            info['good_ch'].append(c)
+    data = np.delete(data, info['open_ch'], axis=0)
     print("")
-    #info['disable_ch'] = list(set(info['disable_ch']))
-    #info['disable_ch'].sort()
     return data
 
 def ref_process (data, info):    
-    #imp_process = np.array([[0] if i in info['disable_ch'] else [1] for i in range(128)])
-    #data = imp_process*data
     if info['ref_en']:
         ref = data.mean(axis=0)
         data -= ref
@@ -185,14 +178,12 @@ def save_nex (data, info):
     fd.TimestampFrequency = info['sample_rate']
     fd.Events.append(Event('StartStop', [0, (lenth-1)/info['sample_rate']]))
     fd.Intervals.append(Interval('AllFile', [0], [(lenth-1)/info['sample_rate']]))
-    for c in range(ch):
-        #if c in info['disable_ch']:
-            #continue
+    for i, c in enumerate(info['good_ch']):
         if c in info['short_ch']:
             c_name = 'ch'+str(info['work_ch'][c])+'(short)'
         else:
             c_name = 'ch'+str(info['work_ch'][c])
-        fd.Continuous.append(Continuous(c_name, info['sample_rate'], [0], [0], data[c].tolist()))
+        fd.Continuous.append(Continuous(c_name, info['sample_rate'], [0], [0], data[i].tolist()))
         p_value = 20+int(c/128*80)
         progressbar_update(p_value)
     if not info['file_format']:
@@ -399,7 +390,7 @@ def init():
 
 if __name__ == '__main__':
     root = tk.Tk()
-    root.title('OfflineSorter Helper V3')
+    root.title('OfflineSorter Helper V3.2')
     sw = root.winfo_screenwidth()
     sh = root.winfo_screenheight()
     x = (sw-315) / 2
@@ -435,7 +426,7 @@ if __name__ == '__main__':
     tk.Entry(root, textvariable=file_name, width=20).grid(row=4, column=1, columnspan=2, sticky='w')
 
     gen_ofb_en = tk.IntVar()
-    tk.Checkbutton(root, text="生成OfflineSort自动化处理脚本（需License）",font=('微软雅黑', 10),variable = gen_ofb_en,onvalue=1,offvalue=0).grid(row=5, column=0, sticky='w', columnspan=4)
+    tk.Checkbutton(root, text="生成OfflineSort自动化处理脚本",font=('微软雅黑', 10),variable = gen_ofb_en,onvalue=1,offvalue=0).grid(row=5, column=0, sticky='w', columnspan=4)
 
     filter_en = tk.IntVar()
     tk.Checkbutton(root, text='高通滤波', font=('微软雅黑', 10),variable = filter_en,onvalue=1,offvalue=0).grid(row=6, column=0, sticky='w')
