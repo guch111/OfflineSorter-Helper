@@ -1,0 +1,16 @@
+{
+    "ref_en": 1,
+    "open_en": 1,
+    "threshold": "2",
+    "file_format": 0,
+    "gen_ofb_en": 1,
+    "filter_en": 1,
+    "filter_cutoff": "250",
+    "filter_type": "Butterworth",
+    "filter_pole": "4",
+    "detect_en": 1,
+    "detect_threshold": "-70",
+    "sort_en": 1,
+    "sort_type": "ValleySeek2d",
+    "align_en": 1
+}
